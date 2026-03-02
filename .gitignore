@@ -1,0 +1,11 @@
+.DS_Store
+
+# Local environment
+venv/
+
+# Generated outputs
+out/
+
+# Raw datasets should stay outside Git history
+data/raw/
+*.h5
