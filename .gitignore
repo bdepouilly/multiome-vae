@@ -9,3 +9,5 @@ out/
 # Raw datasets should stay outside Git history
 data/raw/
 *.h5
+data/processed
+*.h5ad
