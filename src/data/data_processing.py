@@ -12,6 +12,7 @@ processed_dir.mkdir(parents=True, exist_ok=True)
 
 rna_out = processed_dir / "adata_rna_processed.h5ad"
 atac_out = processed_dir / "adata_atac_processed.h5ad"
+npz_out = processed_dir / "multiome_dataset.npz"
 
 data_path = "/Users/bdepouilly/CompBio/multiome-vae/data/raw/10k_PBMC_Multiome_nextgem_Chromium_X_filtered_feature_bc_matrix.h5"
 
@@ -93,6 +94,23 @@ def SVD(adata_atac, n_components: int = 256):
     }
 
     return adata_atac
+
+def test_aligned(adata_rna, adata_atac):
+    assert adata_atac.n_obs == adata_rna.n_obs
+    assert adata_rna.obs_names.equals(adata_atac.obs_names)
+
+def validate_matrix(X, name):
+    if sparse.issparse(X):
+        finite = np.isfinite(X.data).all()
+    else:
+        finite = np.isfinite(X).all()
+        
+    print(f"{name} finite: {finite}.")
+    print(f"{name} dtype: {X.dtype}.")
+    print(f"{name} shape: {X.shape}.")
+    
+    assert finite
+    assert X.dtype == np.float32
     
 def main():
     adata_rna, adata_atac = load_and_split(data_path)
@@ -110,15 +128,30 @@ def main():
     
     sc.pp.highly_variable_genes(adata_rna, n_top_genes=5000, subset=True)
     
-    adata_rna, adata_atac = align_RNA_ATAC(adata_rna, adata_atac)
-    
     sc.pp.filter_genes(adata_atac, min_cells=20)
     
     adata_atac = tf_idf(adata_atac)
     adata_atac = SVD(adata_atac)
     
+    adata_rna, adata_atac = align_RNA_ATAC(adata_rna, adata_atac)
+    
+    test_aligned(adata_rna, adata_atac)
+    
+    adata_rna.X = adata_rna.X.astype("float32")
+    adata_atac.obsm['X_lsi'] = adata_atac.obsm["X_lsi"].astype("float32")
+    
+    validate_matrix(adata_atac.obsm["X_lsi"], "ATAC")
+    validate_matrix(adata_rna.X, "RNA")
+    
     adata_rna.write(rna_out)
     adata_atac.write(atac_out)
+    np.savez_compressed(
+        npz_out,
+        X_rna = adata_rna.X,
+        X_atac = adata_atac.obsm["X_lsi"],
+        barcodes = adata_rna.obs_names.to_numpy(),
+        rna_genes = adata_rna.var_names.to_numpy()
+    )
 
 if __name__ == "__main__":
     main()
