@@ -1,5 +1,5 @@
 import torch
-from base import BaseVAE
+from models.base_vae import BaseVAE
 from torch import nn
 from torch import Tensor
 from typing import List, Any, Optional
@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 class RNA_VAE(BaseVAE):
     
-    def __init__(self, input_dim: int = 2000, hidden_dims: Optional[List[int]] = None, latent_dim: int = 16) -> None:
+    def __init__(self, input_dim: int = 5000, hidden_dims: Optional[List[int]] = None, latent_dim: int = 16) -> None:
         super().__init__()
         
         if hidden_dims is None:
@@ -91,11 +91,13 @@ class RNA_VAE(BaseVAE):
     def reconstruct(self, x: Tensor) -> Tensor:
         return self.forward(x)[0]
     
-    def loss_function(self, *inputs: Any, **kwargs) -> Tensor:
+    def loss_function(self, *inputs: Any, beta: float = 1.0, **kwargs) -> List[Tensor]:
         x_hat, x, mu, logvar = inputs
         
         recon_loss = F.mse_loss(x_hat, x, reduction="mean")
         kl_loss = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
         
-        return recon_loss + kl_loss
+        loss = recon_loss + beta * kl_loss
+        
+        return loss, recon_loss, kl_loss
         

@@ -9,7 +9,7 @@ class BaseVAE(nn.Module, ABC):
         super().__init__()
     
     @abstractmethod
-    def encode(self, input: Tensor) -> List[Tensor]:
+    def encode(self, input: Any) -> List[Tensor]:
         pass
     
     @abstractmethod
@@ -17,21 +17,21 @@ class BaseVAE(nn.Module, ABC):
         pass
     
     @abstractmethod
-    def decode(self, input: Tensor) -> Tensor:
+    def decode(self, input: Tensor) -> Any:
         pass
     
     @abstractmethod
-    def forward(self, *inputs: Tensor) -> List[Tensor]:
+    def forward(self, *inputs: Tensor) -> Any:
         pass
     
     @abstractmethod
-    def sample(self, batch_size: int, current_device: int, **kwargs) -> Tensor:
+    def sample(self, batch_size: int, current_device: int, **kwargs) -> Any:
         pass
     
     @abstractmethod
-    def reconstruct(self, x: Tensor, **kwargs) -> Tensor:
+    def reconstruct(self, x: Tensor, **kwargs) -> Any:
         pass
     
     @abstractmethod
-    def loss_function(self, *inputs: Any, **kwargs) -> Tensor:
+    def loss_function(self, *inputs: Any, **kwargs) -> Any:
         pass

@@ -6,6 +6,7 @@ from pathlib import Path
 from sklearn.preprocessing import normalize
 from sklearn.decomposition import TruncatedSVD
 from scipy import sparse
+import celltypist as ct
 
 processed_dir = Path("/Users/bdepouilly/CompBio/multiome-vae/data/processed")
 processed_dir.mkdir(parents=True, exist_ok=True)
@@ -112,6 +113,42 @@ def validate_matrix(X, name):
     assert finite
     assert X.dtype == np.float32
     
+def assign_labels(adata: AnnData) -> AnnData:
+    predictions = ct.annotate(adata)
+    adata.obs["cell_type"] = predictions.predicted_labels["predicted_labels"].values
+    coarse_map = {
+        "Memory B cells" : "B cells",
+        "Tcm/Naive cytotoxic T cells" : "T cells",
+        "Tcm/Naive helper T cells" : "T cells",
+        "Tem/Effector helper T cells" : "T cells",
+        "Tem/Trm cytotoxic T cells" : "T cells",
+        "CD16+ NK cells" : "NK cells",
+        "Regulatory T cells" : "T cells",
+        "Tem/Temra cytotoxic T cells" : "T cells",
+        "Naive B cells" : "B cells",
+        "Non-classical monocytes" : "Monocytes",
+        "CD16- NK cells" : "NK cells",
+        "Age-associated B cells" : "B cells",
+        "NK cells" : "NK cells",
+        "Tem/Effector helper T cells PD1+" : "T cells",
+        "CRTAM+ gamma-delta T cells" : "T cells",
+        "Trm cytotoxic T cells" : "T cells",
+        "Cycling T cells" : "T cells",
+        "Memory CD4+ cytotoxic T cells" : "T cells",
+        "Type 17 helper T cells" : "T cells",
+        "Cycling B cells" : "B cells",
+        "Plasma cells" : "B cells",
+        "Follicular helper T cells" : "T cells",
+        "DC" : "Dendritic cells",
+        "DC1" : "Dendritic cells",
+        "DC2" : "Dendritic cells",
+        "DC3" : "Dendritic cells",
+    }
+    adata.obs["cell_type_coarse"] = adata.obs["cell_type"].map(coarse_map).fillna("Other")
+    
+    return adata
+    
+    
 def main():
     adata_rna, adata_atac = load_and_split(data_path)
     
@@ -120,22 +157,25 @@ def main():
     # Saving count data
     adata_rna.layers['counts'] = adata_rna.X.copy()
 
-    # Normalizing to median total coutns
-    sc.pp.normalize_total(adata_rna)
+    # Normalizing
+    sc.pp.normalize_total(adata_rna, target_sum=1e4)
     
     # Log-transform the data
     sc.pp.log1p(adata_rna)
     
     sc.pp.highly_variable_genes(adata_rna, n_top_genes=5000, subset=True)
     
-    sc.pp.filter_genes(adata_atac, min_cells=20)
+    adata_rna, adata_atac = align_RNA_ATAC(adata_rna, adata_atac)
     
+    sc.pp.filter_genes(adata_atac, min_cells=20)
     adata_atac = tf_idf(adata_atac)
     adata_atac = SVD(adata_atac)
     
-    adata_rna, adata_atac = align_RNA_ATAC(adata_rna, adata_atac)
-    
     test_aligned(adata_rna, adata_atac)
+    
+    adata_rna = assign_labels(adata_rna)
+    labels_fine = adata_rna.obs["cell_type"].to_numpy()
+    labels = adata_rna.obs["cell_type_coarse"].to_numpy()
     
     adata_rna.X = adata_rna.X.astype("float32")
     adata_atac.obsm['X_lsi'] = adata_atac.obsm["X_lsi"].astype("float32")
@@ -145,12 +185,20 @@ def main():
     
     adata_rna.write(rna_out)
     adata_atac.write(atac_out)
+    
+    X_rna = adata_rna.X
+    if hasattr(X_rna, "toarray"):
+        X_rna = X_rna.toarray()
+    X_rna = X_rna.astype(np.float32)
+    
     np.savez_compressed(
         npz_out,
-        X_rna = adata_rna.X,
+        X_rna = X_rna,
         X_atac = adata_atac.obsm["X_lsi"],
         barcodes = adata_rna.obs_names.to_numpy(),
-        rna_genes = adata_rna.var_names.to_numpy()
+        rna_genes = adata_rna.var_names.to_numpy(),
+        cell_type_coarse = labels,
+        cell_type = labels_fine
     )
 
 if __name__ == "__main__":
