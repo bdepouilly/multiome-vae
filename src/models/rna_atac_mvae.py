@@ -86,7 +86,7 @@ class RNA_ATAC_MVAE(BaseVAE):
         result = self.forward(x_rna, x_atac)
         return result[1], result[3]
     
-    def loss_function(self, *inputs: Any, beta: float = 0.1, **kwargs):
+    def loss_function(self, *inputs: Any, beta: float = 0.1, lambda_rna: float = 0.5, lambda_atac: float = 0.5, **kwargs):
         x_rna, x_hat_rna, x_atac, x_hat_atac, mu, logvar = inputs
         
         recon_rna = F.mse_loss(x_rna, x_hat_rna, reduction="mean")
@@ -94,6 +94,6 @@ class RNA_ATAC_MVAE(BaseVAE):
         
         kl_loss = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
         
-        loss = 0.5 * recon_rna + 0.5 * recon_atac + beta * kl_loss
+        loss = lambda_rna * recon_rna + lambda_atac * recon_atac + beta * kl_loss
         
         return loss, recon_rna, recon_atac, kl_loss

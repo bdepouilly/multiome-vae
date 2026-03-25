@@ -11,3 +11,6 @@ data/raw/
 *.h5
 data/processed
 *.h5ad
+
+# Runs data
+runs/
