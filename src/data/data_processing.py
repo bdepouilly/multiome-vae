@@ -28,7 +28,7 @@ def load_and_split(path: str) -> Tuple[AnnData, AnnData]:
     
     return adata_rna, adata_atac
 
-def is_outlier(adata, metric: str, nmads: int, genes: bool = False): #if genes is true we filter out genes, otherwise we filter out cells/barcodes
+def is_outlier(adata, metric: str, nmads: int, genes: bool = False): #if genes is true it filters out genes, otherwise it filters out cells/barcodes
     if genes: m = adata.var[metric]
     else: m = adata.obs[metric]
     mad = np.median(np.abs(m - np.median(m)))
@@ -117,15 +117,20 @@ def assign_labels(adata: AnnData) -> AnnData:
     predictions = ct.annotate(adata)
     adata.obs["cell_type"] = predictions.predicted_labels["predicted_labels"].values
     coarse_map = {
+        "B cells" : "B cells",
         "Memory B cells" : "B cells",
         "Tcm/Naive cytotoxic T cells" : "T cells",
         "Tcm/Naive helper T cells" : "T cells",
         "Tem/Effector helper T cells" : "T cells",
         "Tem/Trm cytotoxic T cells" : "T cells",
+        "MAIT cells" : "T cells",
+        "Type 1 helper T cells" : "T cells",
         "CD16+ NK cells" : "NK cells",
         "Regulatory T cells" : "T cells",
         "Tem/Temra cytotoxic T cells" : "T cells",
         "Naive B cells" : "B cells",
+        "Monocytes" : "Monocytes",
+        "Classical monocytes" : "Monocytes",
         "Non-classical monocytes" : "Monocytes",
         "CD16- NK cells" : "NK cells",
         "Age-associated B cells" : "B cells",
@@ -143,6 +148,7 @@ def assign_labels(adata: AnnData) -> AnnData:
         "DC1" : "Dendritic cells",
         "DC2" : "Dendritic cells",
         "DC3" : "Dendritic cells",
+        "pDC" : "Dendritic cells"
     }
     adata.obs["cell_type_coarse"] = adata.obs["cell_type"].map(coarse_map).fillna("Other")
     
@@ -163,6 +169,9 @@ def main():
     # Log-transform the data
     sc.pp.log1p(adata_rna)
     
+    # Label the cells
+    adata_rna = assign_labels(adata_rna)
+    
     sc.pp.highly_variable_genes(adata_rna, n_top_genes=5000, subset=True)
     
     adata_rna, adata_atac = align_RNA_ATAC(adata_rna, adata_atac)
@@ -173,7 +182,6 @@ def main():
     
     test_aligned(adata_rna, adata_atac)
     
-    adata_rna = assign_labels(adata_rna)
     labels_fine = adata_rna.obs["cell_type"].to_numpy()
     labels = adata_rna.obs["cell_type_coarse"].to_numpy()
     
