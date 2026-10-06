@@ -10,6 +10,10 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from torch.utils.data import Subset, DataLoader
 
+ROOT = Path(__file__).resolve().parents[1]
+PROCESSED_DATA_DIR = ROOT / "data" / "processed"
+RUNS_DIR = ROOT / "runs"
+
 # Sanitizing hyperparameters logging
 
 def _to_hparam_value(value):
@@ -29,7 +33,6 @@ def _sanitize_hparams(values):
 
 # Hyperparameters
 
-input_dims = [5000, 256]
 latent_dim = 8
 hidden_dims = [[128, 64], [128, 64]]
 lr = 1e-3
@@ -38,14 +41,35 @@ n_epochs = 50
 annealing_epochs = 30
 beta_max = 0.001
 beta_min = 1e-5
-lambda_rna = 0.5
-lambda_atac = 5
+lambda_rna = 1
+lambda_atac = 1
 seed = 42
+
+# ATAC input: LSI components [atac_first, atac_last). Component 0 tracks sequencing depth, so it is dropped.
+atac_first = 1
+atac_last = 51
+
+# Load processed RNA and ATAC data
+
+data = np.load(PROCESSED_DATA_DIR / "multiome_dataset.npz", allow_pickle=True)
+X_rna = data["X_rna"].astype("float32")
+X_atac = data["X_atac"][:, atac_first:atac_last].astype("float32")
+split = np.load(PROCESSED_DATA_DIR / "multiome_split.npz")
+
+# Scale ATAC so its mean per-feature variance matches RNA's (statistics from training cells only).
+# Each MSE term then starts from the same baseline, so lambda_rna = lambda_atac means equal weight.
+train_idx = split["train_idx"]
+rna_scale = X_rna[train_idx].var(axis=0).mean() ** 0.5
+atac_scale = X_atac[train_idx].var(axis=0).mean() ** 0.5
+atac_scale_factor = float(rna_scale / atac_scale)
+X_atac = X_atac * atac_scale_factor
+
+input_dims = [X_rna.shape[1], X_atac.shape[1]]
 
 # Logging
 
 run_name = datetime.now().strftime(f"mvae_ld{latent_dim}_bmax{beta_max}_lrna{lambda_rna}_latac{lambda_atac}_lr{lr}_%Y%m%d_%H%M%S")
-run_dir = Path("/Users/bdepouilly/CompBio/multiome-vae/runs") / run_name
+run_dir = RUNS_DIR / run_name
 run_dir.mkdir(parents=True, exist_ok=True)
 
 writer = SummaryWriter(log_dir=run_dir)
@@ -66,6 +90,9 @@ config = {
     "epochs": n_epochs,
     "annealing_epochs": annealing_epochs,
     "seed": seed,
+    "atac_lsi_components": [atac_first, atac_last],
+    "atac_scaling": "match RNA mean per-feature variance on train cells",
+    "atac_scale_factor": atac_scale_factor,
 }
 
 with open(run_dir / "config.json", "w") as f:
@@ -80,15 +107,7 @@ np.random.seed(seed)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(seed)
 
-# Load processed RNA and ATAC data
-
-data = np.load("/Users/bdepouilly/CompBio/multiome-vae/data/processed/multiome_dataset.npz", allow_pickle=True)
-X_rna = data["X_rna"].astype("float32")
-X_atac = data["X_atac"].astype("float32")
-
 dataset = PairedMultiomeDataset(X_rna, X_atac)
-
-split = np.load("/Users/bdepouilly/CompBio/multiome-vae/data/processed/multiome_split.npz")
 
 train_dataset = Subset(dataset, split["train_idx"])
 val_dataset = Subset(dataset, split["val_idx"])
@@ -240,8 +259,6 @@ model.eval()
 
 print(f"Loaded best model from {best_model_path} (best val_loss: {best_val_loss:.4f})")
 
-mu_all = []
-npz_out = run_dir / "collected_latent_mu_multiome.npz"
 
 train_eval_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
 val_eval_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
