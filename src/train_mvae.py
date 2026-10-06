@@ -42,7 +42,7 @@ annealing_epochs = 30
 beta_max = 0.001
 beta_min = 1e-5
 lambda_rna = 1
-lambda_atac = 1
+lambda_atac = 0
 seed = 42
 
 # ATAC input: LSI components [atac_first, atac_last). Component 0 tracks sequencing depth, so it is dropped.
