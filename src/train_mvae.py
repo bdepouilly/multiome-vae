@@ -38,8 +38,8 @@ n_epochs = 50
 annealing_epochs = 30
 beta_max = 0.001
 beta_min = 1e-5
-lambda_rna = 0
-lambda_atac = 1000
+lambda_rna = 0.5
+lambda_atac = 5
 seed = 42
 
 # Logging
