@@ -94,6 +94,9 @@ class RNA_ATAC_MVAE(BaseVAE):
         
         kl_loss = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
         
+        # den = lambda_rna + lambda_atac
+        # loss = lambda_rna/den * recon_rna + lambda_atac/den * recon_atac + beta * kl_loss
+        
         loss = lambda_rna * recon_rna + lambda_atac * recon_atac + beta * kl_loss
         
         return loss, recon_rna, recon_atac, kl_loss

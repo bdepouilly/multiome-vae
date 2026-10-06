@@ -1,17 +1,26 @@
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score
+from pathlib import Path
 
-mu_data = np.load("/Users/bdepouilly/CompBio/multiome-vae/out/collected_latent_mu_multiome.npz", allow_pickle=True)
-Z = mu_data["Z"]
-labels = mu_data["cell_type_coarse"]
+data_dir = Path("/Users/bdepouilly/CompBio/multiome-vae/runs/mvae_ld8_bmax0.001_lrna0_latac1_lr0.001_20260401_144115/latent_split.npz")
 
-Z_tr, Z_te, y_tr, y_te = train_test_split(Z, labels, test_size=0.2, random_state=42, stratify=labels)
+mu_data = np.load(data_dir, allow_pickle=True)
 
-knn = KNeighborsClassifier(n_neighbors=15)
-knn.fit(Z_tr, y_tr)
-y_pred = knn.predict(Z_te)
-accuracy = accuracy_score(y_te, y_pred)
+Z_train = mu_data["Z_train"]
+y_train = mu_data["y_train"]
+Z_val = mu_data["Z_val"]
+y_val = mu_data["y_val"]
+Z_test = mu_data["Z_test"]
+y_test = mu_data["y_test"]
+
+normalize_and_cluster = make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=15))
+
+normalize_and_cluster.fit(Z_train, y_train)
+y_pred = normalize_and_cluster.predict(Z_test)
+
+accuracy = accuracy_score(y_test, y_pred)
 
 print("Accuracy score of RNA-ATAC VAE:", accuracy)

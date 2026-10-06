@@ -1,6 +1,6 @@
 import numpy as np
 from data.dataset import PairedMultiomeDataset
-from data.dataloader import split_and_load_paired, PairedDataLoader
+from data.dataloader import encode_loader
 import torch
 from models.rna_atac_mvae import RNA_ATAC_MVAE
 from torch.optim import AdamW
@@ -8,6 +8,7 @@ from pathlib import Path
 import json
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
+from torch.utils.data import Subset, DataLoader
 
 # Sanitizing hyperparameters logging
 
@@ -37,8 +38,8 @@ n_epochs = 50
 annealing_epochs = 30
 beta_max = 0.001
 beta_min = 1e-5
-lambda_rna = 0.5
-lambda_atac = 5
+lambda_rna = 0
+lambda_atac = 1000
 seed = 42
 
 # Logging
@@ -86,7 +87,18 @@ X_rna = data["X_rna"].astype("float32")
 X_atac = data["X_atac"].astype("float32")
 
 dataset = PairedMultiomeDataset(X_rna, X_atac)
-train_loader, val_loader = split_and_load_paired(dataset=dataset, shuffle=True, batch_size=batch_size, train_pct=0.8)
+
+split = np.load("/Users/bdepouilly/CompBio/multiome-vae/data/processed/multiome_split.npz")
+
+train_dataset = Subset(dataset, split["train_idx"])
+val_dataset = Subset(dataset, split["val_idx"])
+test_dataset = Subset(dataset, split["test_idx"])
+
+g = torch.Generator().manual_seed(seed)
+
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, generator=g)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -134,7 +146,7 @@ for epoch in range(n_epochs):
         mu_epoch.append(outputs[4].detach())
         logvar_epoch.append(outputs[5].detach())
         
-        loss, recon_rna, recon_atac, kl_loss = model.loss_function(*outputs, beta=beta)
+        loss, recon_rna, recon_atac, kl_loss = model.loss_function(*outputs, beta=beta, lambda_atac=lambda_atac, lambda_rna=lambda_rna)
         
         loss.backward()
         optimizer.step()
@@ -178,7 +190,7 @@ for epoch in range(n_epochs):
             
             outputs = model(x_rna, x_atac)
             
-            loss, recon_rna, recon_atac, kl_loss = model.loss_function(*outputs, beta=beta)
+            loss, recon_rna, recon_atac, kl_loss = model.loss_function(*outputs, beta=beta, lambda_atac=lambda_atac, lambda_rna=lambda_rna)
             
             val_loss += loss.item() * batch_size
             val_recon_rna += recon_rna.item() * batch_size
@@ -220,27 +232,44 @@ for epoch in range(n_epochs):
         f"mu std = {mu_std:.4f} | logvar std = {logvar_std:.4f} | "
         f"sigma = {sigma_mean:.4f}"
     )
-    
+
+best_model_path = run_dir / "model_best.pt"
+model.load_state_dict(torch.load(best_model_path, map_location=device))
+model.to(device)
 model.eval()
+
+print(f"Loaded best model from {best_model_path} (best val_loss: {best_val_loss:.4f})")
+
 mu_all = []
-path_out = Path("/Users/bdepouilly/CompBio/multiome-vae/out")
-npz_out = path_out/"collected_latent_mu_multiome.npz"
+npz_out = run_dir / "collected_latent_mu_multiome.npz"
 
-full_loader = PairedDataLoader(X_rna, X_atac, batch_size=128, shuffle=False, seed=42)
+train_eval_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
+val_eval_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+test_eval_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-with torch.no_grad():
-    for x in full_loader:
-        x_rna = x[0].to(device)
-        x_atac = x[1].to(device)
-        mu, logvar = model.encode(x_rna, x_atac)
-        mu_all.append(mu.detach().cpu())
+labels = data["cell_type_coarse"]
 
-Z = torch.cat(mu_all).numpy()
+Z_train = encode_loader(model, train_eval_loader, device)
+Z_val = encode_loader(model, val_eval_loader, device)
+Z_test = encode_loader(model, test_eval_loader, device)
 
-print(f"Z shape: {Z.shape}", end=" | ")
-print("Z mean and standard deviation:", Z.mean(), Z.std(), end=" | ")
-print("Z mean standard deviation per dimension:", Z.std(axis=0))
-np.savez_compressed(npz_out, Z=Z, cell_type_coarse=data["cell_type_coarse"])
+print(f"Z shape: {Z_train.shape}", end=" | ")
+print("Z mean and standard deviation:", Z_train.mean(), Z_train.std(), end=" | ")
+Z_best_std_per_dim = Z_train.std(axis=0)
+n_active_ld = (Z_best_std_per_dim > 0.1).sum()
+print("Z mean standard deviation per dimension:", Z_best_std_per_dim)
+print(f"Number of active latent dimensions: {n_active_ld}.")
+
+np.savez_compressed(
+    run_dir / "latent_split.npz",
+    run_name=run_name,
+    Z_train=Z_train,
+    y_train=labels[split["train_idx"]],
+    Z_val=Z_val,
+    y_val=labels[split["val_idx"]],
+    Z_test=Z_test,
+    y_test=labels[split["test_idx"]]
+)
 
 writer.add_hparams(
     _sanitize_hparams(config),

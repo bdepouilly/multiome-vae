@@ -63,3 +63,12 @@ class PairedDataLoader(DataLoader):
             **kwargs,
         )
     
+def encode_loader(model, loader, device):
+    mu_all = []
+    with torch.no_grad():
+        for x_rna, x_atac in loader:
+            x_rna = x_rna.to(device)
+            x_atac = x_atac.to(device)
+            mu, _ = model.encode(x_rna, x_atac)
+            mu_all.append(mu.cpu())
+    return torch.cat(mu_all).numpy()
