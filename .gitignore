@@ -14,3 +14,8 @@ data/processed
 
 # Runs data
 runs/
+
+__pycache__/
+*.pyc
+
+literature/
