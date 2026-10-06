@@ -33,7 +33,7 @@ def _sanitize_hparams(values):
 
 # Hyperparameters
 
-latent_dim = 8
+latent_dim = 32
 hidden_dims = [[128, 64], [128, 64]]
 lr = 1e-3
 batch_size = 128
@@ -42,7 +42,7 @@ annealing_epochs = 30
 beta_max = 0.001
 beta_min = 1e-5
 lambda_rna = 1
-lambda_atac = 0
+lambda_atac = 0.25
 seed = 42
 
 # ATAC input: LSI components [atac_first, atac_last). Component 0 tracks sequencing depth, so it is dropped.
