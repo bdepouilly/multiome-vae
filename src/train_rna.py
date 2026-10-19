@@ -7,8 +7,11 @@ from models.rna_vae import RNA_VAE
 import matplotlib.pyplot as plt 
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+PROCESSED_DATA_DIR = ROOT / "data" / "processed"
+
 # Load processed RNA matrix
-data = np.load("/Users/bdepouilly/CompBio/multiome-vae/data/processed/multiome_dataset.npz", allow_pickle=True)
+data = np.load(PROCESSED_DATA_DIR / "multiome_dataset.npz", allow_pickle=True)
 X_rna = data["X_rna"].astype("float32")
 
 dataset = RNADataset(X_rna)
@@ -147,7 +150,7 @@ plt.close()
 
 model.eval()
 mu_all = []
-path_out = Path("/Users/bdepouilly/CompBio/multiome-vae/out")
+path_out = ROOT / "out"
 npz_out = path_out/"collected_latent_mu.npz"
 
 with torch.no_grad():

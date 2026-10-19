@@ -8,14 +8,15 @@ from sklearn.decomposition import TruncatedSVD
 from scipy import sparse
 import celltypist as ct
 
-processed_dir = Path("/Users/bdepouilly/CompBio/multiome-vae/data/processed")
+ROOT = Path(__file__).resolve().parents[2]
+processed_dir = ROOT / "data" / "processed"
 processed_dir.mkdir(parents=True, exist_ok=True)
 
 rna_out = processed_dir / "adata_rna_processed.h5ad"
 atac_out = processed_dir / "adata_atac_processed.h5ad"
 npz_out = processed_dir / "multiome_dataset.npz"
 
-data_path = "/Users/bdepouilly/CompBio/multiome-vae/data/raw/10k_PBMC_Multiome_nextgem_Chromium_X_filtered_feature_bc_matrix.h5"
+data_path = str(ROOT / "data" / "raw" / "10k_PBMC_Multiome_nextgem_Chromium_X_filtered_feature_bc_matrix.h5")
 
 def load_and_split(path: str) -> Tuple[AnnData, AnnData]:
     print(f"Loading data at {path}")
@@ -198,10 +199,18 @@ def main():
     if hasattr(X_rna, "toarray"):
         X_rna = X_rna.toarray()
     X_rna = X_rna.astype(np.float32)
-    
+
+    # Raw counts of the same HVGs and cells, used as the target of the count likelihood
+    X_rna_counts = adata_rna.layers["counts"]
+    if hasattr(X_rna_counts, "toarray"):
+        X_rna_counts = X_rna_counts.toarray()
+    X_rna_counts = X_rna_counts.astype(np.float32)
+    assert np.allclose(X_rna_counts, np.round(X_rna_counts)), "RNA counts layer is not integer-valued"
+
     np.savez_compressed(
         npz_out,
         X_rna = X_rna,
+        X_rna_counts = X_rna_counts,
         X_atac = adata_atac.obsm["X_lsi"],
         barcodes = adata_rna.obs_names.to_numpy(),
         rna_genes = adata_rna.var_names.to_numpy(),
