@@ -17,6 +17,7 @@ def rna_pca(X_rna, train_idx, n_components=50, seed=42):
     
 def main():
     data = np.load(PROCESSED_DATA_DIR / "multiome_dataset.npz", allow_pickle=True)
+    atac_features = np.load(PROCESSED_DATA_DIR / "atac_features.npz", allow_pickle=True)
     split = np.load(PROCESSED_DATA_DIR / "multiome_split.npz")
     train_idx = split["train_idx"]
     # Make choices on "val"; look at "test" only once all choices are frozen.
@@ -31,16 +32,18 @@ def main():
 
     # Embeddings, each with one row per cell.
     Z_rna = rna_pca(data["X_rna"], train_idx)
-    Z_atac_no_depth = data["X_atac"][:, 1:51]    # LSI components 2 to 51, dropping the first
+    # LSI fitted on training cells only (atac_features.py), components 2 to 51. The first component
+    # of the uncentered SVD is close to the mean accessibility profile and nearly constant, so it is dropped.
+    Z_atac = atac_features["X_lsi"][:, 1:51]
     
     # Scale each block to unit overall std so neither modality dominates the distances
     Z_rna = Z_rna / Z_rna.std()
-    Z_atac_no_depth = Z_atac_no_depth / Z_atac_no_depth.std()
-    Z_both = np.concatenate((Z_rna, Z_atac_no_depth), axis=1)    # RNA and ATAC side by side
+    Z_atac = Z_atac / Z_atac.std()
+    Z_both = np.concatenate((Z_rna, Z_atac), axis=1)    # RNA and ATAC side by side
 
     embeddings = {
         "RNA PCA": Z_rna,
-        "ATAC LSI no depth": Z_atac_no_depth,
+        "ATAC LSI": Z_atac,
         "RNA and ATAC": Z_both,
     }
     

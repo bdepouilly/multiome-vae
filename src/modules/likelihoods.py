@@ -24,7 +24,7 @@ def nb_log_likelihood(x: Tensor, log_mu: Tensor, theta: Tensor) -> Tensor:
     return combinatorial + theta * (log_theta - log_theta_mu) + x * (log_mu - log_theta_mu)
 
 def poisson_log_likelihood(x: Tensor, log_mu: Tensor) -> Tensor:
-    """Element-wise log-likelihood of fragments counts under a Poisson P(mu).
+    """Element-wise log-likelihood of fragment counts under a Poisson P(mu).
     
     mean = mu, variance = mu
 

@@ -67,7 +67,7 @@ def encode_loader(model, loader, device):
     mu_all = []
     with torch.no_grad():
         for batch in loader:
-            x_rna, x_atac = batch[0], batch[1]  # encoder inputs; counts (if any) are not needed
+            x_rna, x_atac = batch["x_rna"], batch["x_atac"]  # encoder inputs; counts (if any) are not needed
             x_rna = x_rna.to(device)
             x_atac = x_atac.to(device)
             mu, _ = model.encode(x_rna, x_atac)

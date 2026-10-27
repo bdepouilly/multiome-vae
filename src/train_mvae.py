@@ -9,7 +9,8 @@ import json
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from torch.utils.data import Subset, DataLoader
-import argparse 
+import argparse
+from scipy import sparse
 
 ROOT = Path(__file__).resolve().parents[1]
 PROCESSED_DATA_DIR = ROOT / "data" / "processed"
@@ -37,6 +38,9 @@ def _sanitize_hparams(values):
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibilty")
 parser.add_argument("--rna-likelihood", type=str, default="nb", choices=["gaussian", "nb"], help="Likelihood for RNA reconstruction")
+parser.add_argument("--atac-likelihood", type=str, default="poisson", choices=["gaussian", "poisson"], help="Likelihood for ATAC reconstruction")
+parser.add_argument("--lambda-rna", type=float, default=1.0, help="RNA reconstruction weight in the loss function")
+parser.add_argument("--lambda-atac", type=float, default=None, help="ATAC reconstruction weight in the loss function")
 parser.add_argument("--beta-max", type=float, default=1.0, help="Maximum beta value for KL annealing")
 parser.add_argument("--epochs", type=int, default=50, help="Number of training epochs")
 parser.add_argument("--patience", type=int, default=20, help="Maximum number of epochs without improvement before stopping")
@@ -44,9 +48,18 @@ args = parser.parse_args()
 
 seed = args.seed
 rna_likelihood = args.rna_likelihood # "gaussian" (MSE on log-normalized) or "nb" (negative binomial on raw counts)
+atac_likelihood = args.atac_likelihood # "gaussian" (MSE on LSI features) or "poisson" (Poisson on raw fragment counts)
 beta_max = args.beta_max
 n_epochs = args.epochs
 patience = args.patience
+lambda_rna = args.lambda_rna
+lambda_atac = args.lambda_atac
+
+if lambda_atac is None:
+    if atac_likelihood == "poisson":
+        lambda_atac = 1.0
+    else:
+        lambda_atac = 0.0
 
 latent_dim = 32
 hidden_dims = [[128, 64], [128, 64]]
@@ -54,23 +67,26 @@ lr = 1e-3
 batch_size = 128
 annealing_epochs = 30
 beta_min = 1e-5
-lambda_rna = 1
-lambda_atac = 0 # ATAC reconstruction off until it has its own likelihood (still used as encoder input)
 
-# ATAC input: LSI components [atac_first, atac_last). Component 0 tracks sequencing depth, so it is dropped.
+# ATAC input: LSI components [atac_first, atac_last). Component 0 of the uncentered SVD is close to the
+# mean accessibility profile and nearly constant across cells, so it is dropped.
 atac_first = 1
 atac_last = 51
 
 # Load processed RNA and ATAC data
 
 data = np.load(PROCESSED_DATA_DIR / "multiome_dataset.npz", allow_pickle=True)
+atac_features = np.load(PROCESSED_DATA_DIR / "atac_features.npz", allow_pickle=True)
 X_rna = data["X_rna"].astype("float32")
 X_rna_counts = data["X_rna_counts"].astype("float32") if rna_likelihood == "nb" else None
-X_atac = data["X_atac"][:, atac_first:atac_last].astype("float32")
+X_atac = atac_features["X_lsi"][:, atac_first:atac_last].astype("float32")
+X_frag = sparse.load_npz(PROCESSED_DATA_DIR / "atac_fragments.npz") if atac_likelihood == "poisson" else None
+n_peaks = X_frag.shape[1] if atac_likelihood == "poisson" else None
 split = np.load(PROCESSED_DATA_DIR / "multiome_split.npz")
 
 # Scale ATAC so its mean per-feature variance matches RNA's (statistics from training cells only).
-# Each MSE term then starts from the same baseline, so lambda_rna = lambda_atac means equal weight.
+# Puts both encoder inputs on a similar scale; with the Gaussian ATAC likelihood, each MSE term then starts
+# from the same baseline, so lambda_rna = lambda_atac means equal weight.
 train_idx = split["train_idx"]
 rna_scale = X_rna[train_idx].var(axis=0).mean() ** 0.5
 atac_scale = X_atac[train_idx].var(axis=0).mean() ** 0.5
@@ -79,15 +95,15 @@ X_atac = X_atac * atac_scale_factor
 
 input_dims = [X_rna.shape[1], X_atac.shape[1]]
 
-# Logging
+## --- Logging
 
-run_name = datetime.now().strftime(f"mvae_{rna_likelihood}_ld{latent_dim}_bmax{beta_max}_lrna{lambda_rna}_latac{lambda_atac}_lr{lr}_seed{seed}_%Y%m%d_%H%M%S")
+run_name = datetime.now().strftime(f"mvae_{rna_likelihood}_{atac_likelihood}_ld{latent_dim}_bmax{beta_max}_lrna{lambda_rna}_latac{lambda_atac}_lr{lr}_seed{seed}_%Y%m%d_%H%M%S")
 run_dir = RUNS_DIR / run_name
 run_dir.mkdir(parents=True, exist_ok=True)
 
 writer = SummaryWriter(log_dir=run_dir)
 
-# Logging config
+## --- Logging config
 
 config = {
     "input_dim": input_dims, 
@@ -101,6 +117,8 @@ config = {
     "lambda_rna": lambda_rna,
     "lambda_atac": lambda_atac,
     "rna_likelihood": rna_likelihood,
+    "atac_likelihood": atac_likelihood,
+    "n_peaks": n_peaks,
     "epochs": n_epochs,
     "annealing_epochs": annealing_epochs,
     "seed": seed,
@@ -115,13 +133,15 @@ with open(run_dir / "config.json", "w") as f:
 config_text = "\n".join(f"{k}: {v}" for k, v in config.items())
 writer.add_text("config", config_text, global_step=0)
 
-# Set seed
+## --- Set seed
 torch.manual_seed(seed)
 np.random.seed(seed)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(seed)
 
-dataset = PairedMultiomeDataset(X_rna, X_atac, X_rna_counts)
+## --- Define datasets
+
+dataset = PairedMultiomeDataset(X_rna, X_atac, X_rna_counts, X_frag)
 
 train_dataset = Subset(dataset, split["train_idx"])
 val_dataset = Subset(dataset, split["val_idx"])
@@ -135,7 +155,7 @@ test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-model = RNA_ATAC_MVAE(input_dims=input_dims, hidden_dims=hidden_dims, latent_dim=latent_dim, rna_likelihood=rna_likelihood)
+model = RNA_ATAC_MVAE(input_dims=input_dims, hidden_dims=hidden_dims, latent_dim=latent_dim, rna_likelihood=rna_likelihood, atac_likelihood=atac_likelihood, n_peaks=n_peaks)
 
 model.to(device)
 
@@ -169,13 +189,11 @@ for epoch in range(n_epochs):
     logvar_epoch = []
     
     for batch in train_loader:
-        x_rna, x_atac, *rest = [t.to(device) for t in batch]
-        x_rna_counts = rest[0] if rest else None
-
-        batch_size = x_rna.size(0)
+        batch = {k: v.to(device) for k, v in batch.items()}
+        batch_size = batch["x_rna"].size(0)
 
         optimizer.zero_grad()
-        outputs = model(x_rna, x_atac, x_rna_counts)
+        outputs = model(**batch)
 
         mu_epoch.append(outputs["mu"].detach())
         logvar_epoch.append(outputs["logvar"].detach())
@@ -217,12 +235,10 @@ for epoch in range(n_epochs):
     
     with torch.no_grad():
         for batch in val_loader:
-            x_rna, x_atac, *rest = [t.to(device) for t in batch]
-            x_rna_counts = rest[0] if rest else None
+            batch = {k: v.to(device) for k, v in batch.items()}
+            batch_size = batch["x_rna"].size(0)
 
-            batch_size = x_rna.size(0)
-
-            outputs = model(x_rna, x_atac, x_rna_counts)
+            outputs = model(**batch)
 
             # Validate at beta_max so val losses are comparable across epochs during the warm-up
             loss, recon_rna, recon_atac, kl_loss = model.loss_function(outputs, beta=beta_max, lambda_atac=lambda_atac, lambda_rna=lambda_rna)
@@ -264,7 +280,6 @@ for epoch in range(n_epochs):
     writer.add_scalar("latent/mu_std", mu_std, epoch)
     writer.add_scalar("latent/logvar_std", logvar_std, epoch)
     writer.add_scalar("latent/sigma_mean", sigma_mean, epoch)
-    writer.add_scalar("schedule/stopped_epoch", epoch + 1)
     
     print(
         f"Epoch {epoch+1:03d} | train loss = {train_loss:.4f} | train_kl = {train_kl:.4f} | train_recon_rna = {train_recon_rna:.4f} | train_recon_atac = {train_recon_atac:.4f} |"
@@ -276,6 +291,8 @@ for epoch in range(n_epochs):
     if epochs_since_best >= patience:
         print(f"Early stopping at epoch {epoch + 1}: no val improvement for {patience} epochs. Best val loss: {best_val_loss:.4f}.")
         break
+
+writer.add_scalar("schedule/stopped_epoch", epoch + 1)
 
 best_model_path = run_dir / "model_best.pt"
 model.load_state_dict(torch.load(best_model_path, map_location=device))
@@ -318,7 +335,8 @@ writer.add_hparams(
         "hparam/final_val_loss": val_loss,
         "hparam/final_val_kl": val_kl,
         "hparam/best_val_loss": best_val_loss,
-    }
+    },
+    run_name=".",  # log hparams into the run folder instead of a timestamped subfolder
 )
 
 writer.close()

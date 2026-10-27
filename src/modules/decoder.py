@@ -4,10 +4,10 @@ from torch import nn, Tensor
 from typing import Any, Optional, List, Tuple
 
 class Decoder(nn.Module):
-    def __init__(self, input_dim: int, latent_dim: int, hidden_dims: Optional[List[int]]):
+    def __init__(self, output_dim: int, latent_dim: int, hidden_dims: Optional[List[int]]):
         super().__init__()
         
-        self.input_dim = input_dim
+        self.output_dim = output_dim
         self.latent_dim = latent_dim
         self.hidden_dims = hidden_dims
         
@@ -24,7 +24,7 @@ class Decoder(nn.Module):
             ))
             l_dim = h
         
-        last_layer = nn.Linear(self.hidden_dims[-1], self.input_dim)
+        last_layer = nn.Linear(self.hidden_dims[-1], self.output_dim)
         
         self.decoder = nn.Sequential(*modules, last_layer)
     
@@ -36,10 +36,10 @@ class CountDecoder(nn.Module):
     
     Predicts per cell feature proportions rho(z) and scales them by observed library size 
     to obtain the mean of a distribution (NB or Poisson) mu = l * rho for each cell and feature."""
-    def __init__(self, input_dim: int, latent_dim: int, hidden_dims: Optional[List[int]]):
+    def __init__(self, output_dim: int, latent_dim: int, hidden_dims: Optional[List[int]]):
         super().__init__()
 
-        self.input_dim = input_dim
+        self.output_dim = output_dim
         self.latent_dim = latent_dim
         self.hidden_dims = hidden_dims
 
@@ -57,7 +57,7 @@ class CountDecoder(nn.Module):
             l_dim = h
 
         self.hidden = nn.Sequential(*modules)
-        self.fc_rho = nn.Linear(self.hidden_dims[-1], self.input_dim)
+        self.fc_rho = nn.Linear(self.hidden_dims[-1], self.output_dim)
 
     def forward(self, z: Tensor, library: Tensor) -> Tuple[Tensor, Tensor]:
         logits = self.fc_rho(self.hidden(z))
@@ -74,11 +74,11 @@ class NBDecoder(CountDecoder):
     Inherits the NB mean mu = l * rho from CountDecoder. The inverse
     dispersion theta is a free parameter per gene, shared across cells.
     """
-    def __init__(self, input_dim: int, latent_dim: int, hidden_dims: Optional[List[int]]):
-        super().__init__(input_dim, latent_dim, hidden_dims)
+    def __init__(self, output_dim: int, latent_dim: int, hidden_dims: Optional[List[int]]):
+        super().__init__(output_dim, latent_dim, hidden_dims)
 
         # Unconstrained parameter, theta = exp(log_theta) > 0
-        self.log_theta = nn.Parameter(torch.randn(self.input_dim))
+        self.log_theta = nn.Parameter(torch.randn(self.output_dim))
 
     def forward(self, z: Tensor, library: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
         """
@@ -96,13 +96,13 @@ class PoissonDecoder(CountDecoder):
     
     Inherits the Poisson mean mu = l * rho from CountDecoder."""
 
-    def __init__(self, input_dim: int, latent_dim: int, hidden_dims: Optional[List[int]]):
-        super().__init__(input_dim, latent_dim, hidden_dims)
+    def __init__(self, output_dim: int, latent_dim: int, hidden_dims: Optional[List[int]]):
+        super().__init__(output_dim, latent_dim, hidden_dims)
 
     def forward(self, z: Tensor, library: Tensor) -> Tuple[Tensor, Tensor]:
         """
         z:       (batch, latent_dim)
         library: (batch, 1) total counts per cell
-        returns mu, log_mu: (batch, n_genes)
+        returns mu, log_mu: (batch, n_peaks)
         """
         return super().forward(z, library)
