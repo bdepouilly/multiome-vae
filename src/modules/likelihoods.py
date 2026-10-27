@@ -22,3 +22,16 @@ def nb_log_likelihood(x: Tensor, log_mu: Tensor, theta: Tensor) -> Tensor:
     combinatorial = torch.lgamma(x + theta) - torch.lgamma(theta) - torch.lgamma(x + 1)
 
     return combinatorial + theta * (log_theta - log_theta_mu) + x * (log_mu - log_theta_mu)
+
+def poisson_log_likelihood(x: Tensor, log_mu: Tensor) -> Tensor:
+    """Element-wise log-likelihood of fragments counts under a Poisson P(mu).
+    
+    mean = mu, variance = mu
+
+    log p(x) = -mu + x * log(mu) - lgamma(x+1)
+
+    x:      (batch, n_peaks) raw fragment counts
+    log_mu: (batch, n_peaks) log of the Poisson mean
+    returns (batch, n_peaks); sum over peaks for the per-cell log-likelihood
+    """
+    return -torch.exp(log_mu) + x * log_mu - torch.lgamma(x + 1)

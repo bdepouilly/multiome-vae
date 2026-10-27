@@ -31,14 +31,11 @@ class Decoder(nn.Module):
     def forward(self, z: Tensor):
         return self.decoder(z)
 
-
-class NBDecoder(nn.Module):
-    """Decoder for negative binomial likelihood on raw counts.
-
-    Predicts per-cell gene proportions rho(z) (softmax over genes) and scales them
-    by the observed library size l to obtain NB mean mu = l * rho. The inverse
-    dispersion theta is a free parameter per gene, shared across cells.
-    """
+class CountDecoder(nn.Module):
+    """Decoder for count data. 
+    
+    Predicts per cell feature proportions rho(z) and scales them by observed library size 
+    to obtain the mean of a distribution (NB or Poisson) mu = l * rho for each cell and feature."""
     def __init__(self, input_dim: int, latent_dim: int, hidden_dims: Optional[List[int]]):
         super().__init__()
 
@@ -62,6 +59,24 @@ class NBDecoder(nn.Module):
         self.hidden = nn.Sequential(*modules)
         self.fc_rho = nn.Linear(self.hidden_dims[-1], self.input_dim)
 
+    def forward(self, z: Tensor, library: Tensor) -> Tuple[Tensor, Tensor]:
+        logits = self.fc_rho(self.hidden(z))
+        log_rho = F.log_softmax(logits, dim=-1)
+        log_mu = log_rho + torch.log(library)
+        mu = torch.exp(log_mu)
+
+        return mu, log_mu
+
+
+class NBDecoder(CountDecoder):
+    """Decoder for negative binomial likelihood on raw counts.
+
+    Inherits the NB mean mu = l * rho from CountDecoder. The inverse
+    dispersion theta is a free parameter per gene, shared across cells.
+    """
+    def __init__(self, input_dim: int, latent_dim: int, hidden_dims: Optional[List[int]]):
+        super().__init__(input_dim, latent_dim, hidden_dims)
+
         # Unconstrained parameter, theta = exp(log_theta) > 0
         self.log_theta = nn.Parameter(torch.randn(self.input_dim))
 
@@ -71,10 +86,23 @@ class NBDecoder(nn.Module):
         library: (batch, 1) total counts per cell
         returns mu, log_mu: (batch, n_genes) and theta: (n_genes,)
         """
-        logits = self.fc_rho(self.hidden(z))
-        log_rho = F.log_softmax(logits, dim=-1)
-        log_mu = torch.log(library) + log_rho
-        mu = torch.exp(log_mu)
+        mu, log_mu = super().forward(z, library)
         theta = torch.exp(self.log_theta)
 
         return mu, log_mu, theta
+
+class PoissonDecoder(CountDecoder):
+    """Decoder for Poisson likelihood on fragment counts.
+    
+    Inherits the Poisson mean mu = l * rho from CountDecoder."""
+
+    def __init__(self, input_dim: int, latent_dim: int, hidden_dims: Optional[List[int]]):
+        super().__init__(input_dim, latent_dim, hidden_dims)
+
+    def forward(self, z: Tensor, library: Tensor) -> Tuple[Tensor, Tensor]:
+        """
+        z:       (batch, latent_dim)
+        library: (batch, 1) total counts per cell
+        returns mu, log_mu: (batch, n_genes)
+        """
+        return super().forward(z, library)

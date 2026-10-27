@@ -1,0 +1,22 @@
+# Direct dependencies, pinned to the versions used during development (Python 3.14).
+
+# Model and training
+torch==2.14.1
+tensorboard==2.21.0
+
+# Data processing and evaluation
+numpy==2.5.4
+scipy==1.18.1
+pandas==3.0.6
+scikit-learn==1.9.1
+anndata==0.13.4
+scanpy==1.12.4
+celltypist==1.7.1
+h5py==3.16.0
+
+# Plotting, UMAP and Leiden clustering (notebooks)
+matplotlib==3.11.2
+seaborn==0.13.2
+umap-learn==0.5.12
+leidenalg==0.12.0
+igraph==1.0.0
