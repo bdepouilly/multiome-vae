@@ -40,7 +40,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` pins the direct dependencies to the versions used during development. The plotting and clustering packages (`matplotlib`, `seaborn`, `umap-learn`, `leidenalg`, `igraph`) are only needed for the notebooks.
+`requirements.txt` pins the direct dependencies to the versions used during development. The plotting and clustering packages (`matplotlib`, `seaborn`, `umap-learn`, `leidenalg`, `igraph`) are only needed for the notebooks and `src/umap_plot.py`.
 
 ## Usage
 
@@ -145,6 +145,18 @@ python src/eval.py <run_name> [<run_name> ...]
 
 This scores each run's latent space with the same kNN probe as the baselines and writes `results/VAE_<run_name>.csv`. It refuses to score a run whose saved labels no longer match the current split, so stale runs cannot be compared silently.
 
+### 7. Plot the latent space
+
+```bash
+python src/umap_plot.py <run_name> [<output_name>]
+```
+
+This fits a UMAP on the latent means of all cells (train, validation and test) and saves a figure coloured by coarse and fine cell types to `figures/`. The README figure was made with:
+
+```bash
+python src/umap_plot.py mvae_nb_poisson_ld32_bmax1.0_lrna1.0_latac1.0_lr0.001_seed42_20261027_184359 umap_mvae.png
+```
+
 ### Notebooks
 
 | Notebook | Purpose |
@@ -242,6 +254,10 @@ What the ablations show:
 - **Adding the Poisson ATAC likelihood:** the latent space now has to explain chromatin accessibility as well. Coarse balanced accuracy rises from 0.887 to 0.913 on test (0.898 to 0.913 on validation), and fine balanced accuracy rises on both splits. The RNA reconstruction is essentially unchanged (≈ 865 vs ≈ 869 nats per cell on validation), so ATAC adds information without degrading RNA. The KL term grows from ≈ 9 to ≈ 40 nats: the posterior carries more information about each cell.
 - **Against the baselines:** the full model matches or slightly exceeds RNA PCA on every metric. The margins are within about one seed standard deviation, so the honest summary is "on par with PCA, with a small edge in balanced accuracy". Since the labels are derived from RNA by CellTypist, RNA PCA is a strong baseline by construction (see [Limitations](#limitations-and-next-steps)).
 
+![UMAP of the MVAE latent space, coloured by coarse and fine cell types](figures/umap_mvae.png)
+
+*UMAP of the latent means of all 7,482 cells (NB RNA + Poisson ATAC, seed 42). Fine types with fewer than 50 training cells, which the kNN probe does not score, are shown in grey. The major lineages form separate islands; within T cells, naive/central-memory cytotoxic cells, regulatory T cells and MAIT cells are distinct, while naive and effector helper T cells form a continuum.*
+
 Per-run tables are in `results/`.
 
 ## Repository structure
@@ -267,7 +283,9 @@ src/
 ├── baselines.py             # PCA / LSI baselines
 ├── evaluation.py            # kNN probe and helpers
 ├── eval.py                  # score trained runs
-└── check_likelihoods.py     # numerical checks of the likelihoods and count decoder
+├── check_likelihoods.py     # numerical checks of the likelihoods and count decoder
+└── umap_plot.py             # UMAP figure of a run's latent space
+figures/                     # figures used in this README
 notebooks/                   # exploration, baselines, early experiments
 results/                     # kNN probe scores (CSV); results/archive/ holds early exploratory runs
 runs/                        # checkpoints, latents, TensorBoard logs (git-ignored)
